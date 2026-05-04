@@ -1,27 +1,31 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <title>City Explorer</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/script.js" defer></script>
 </head>
 <body>
 
 <h1>City Explorer</h1>
 
-<div id="setup">
-  <input id="name" placeholder="Name">
-  <input id="email" placeholder="Email">
-  <select id="city">
-    <option value="1">Manchester</option>
-    <option value="2">Milton Keynes (OU)</option>
-  </select>
-  <button onclick="startGame()">Start Game</button>
-</div>
+<label>Name</label><br>
+<input id="name"><br><br>
+
+<label>Email</label><br>
+<input id="email"><br><br>
+
+<label>City</label><br>
+<select id="city">
+  <option value="1">Manchester</option>
+  <option value="2">London</option>
+</select><br><br>
+
+<button onclick="startGame()">Start Game</button>
+
+<hr>
 
 <div id="game"></div>
 
-<script src="/static/script.js"></script>
 </body>
 </html>

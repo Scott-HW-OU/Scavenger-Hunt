@@ -1,7 +1,7 @@
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template
 from dotenv import load_dotenv
 import requests
 
@@ -10,7 +10,7 @@ import requests
 # --------------------------------------------------
 
 load_dotenv()
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates")
 
 DB_HOST = os.environ.get("SUPABASE_DB_HOST")
 DB_NAME = os.environ.get("SUPABASE_DB_NAME")
@@ -35,7 +35,7 @@ def get_db():
     )
 
 # --------------------------------------------------
-# Email Helper (Supabase Edge Function)
+# Email Helper
 # --------------------------------------------------
 
 def send_results_email(name, email, city, score):
@@ -54,7 +54,15 @@ def send_results_email(name, email, city, score):
     )
 
 # --------------------------------------------------
-# Health Check
+# ✅ NEW: Home Page Route
+# --------------------------------------------------
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+# --------------------------------------------------
+# API: Health
 # --------------------------------------------------
 
 @app.route("/api/health")
@@ -62,7 +70,7 @@ def health():
     return jsonify({"status": "ok"})
 
 # --------------------------------------------------
-# Get Current Question
+# API: Get Current Question
 # --------------------------------------------------
 
 @app.route("/api/question/<session_id>")
@@ -109,7 +117,7 @@ def get_current_question(session_id):
     })
 
 # --------------------------------------------------
-# Submit Answer, Update Score, Progress, Email if Done
+# API: Submit Answer
 # --------------------------------------------------
 
 @app.route("/api/answer/<session_id>", methods=["POST"])
@@ -143,11 +151,6 @@ def submit_answer(session_id):
     cur.execute(sql, (session_id,))
     row = cur.fetchone()
 
-    if not row:
-        cur.close()
-        conn.close()
-        return jsonify({"error": "Session not found"}), 404
-
     correct_answer = row["correct"]
     current_number = row["current_landmark"]
     current_score = row["score"]
@@ -156,29 +159,21 @@ def submit_answer(session_id):
     city_name = row["city_name"]
 
     is_correct = (user_answer == correct_answer)
-
     if is_correct:
         current_score += 1
 
     if current_number < 15:
-        update_sql = """
-        UPDATE session
-        SET current_landmark = current_landmark + 1,
-            score = %s
-        WHERE session_id = %s;
-        """
-        cur.execute(update_sql, (current_score, session_id))
+        cur.execute(
+            "UPDATE session SET current_landmark = current_landmark + 1, score = %s WHERE session_id = %s;",
+            (current_score, session_id)
+        )
         completed = False
     else:
-        update_sql = """
-        UPDATE session
-        SET completed = TRUE,
-            score = %s
-        WHERE session_id = %s;
-        """
-        cur.execute(update_sql, (current_score, session_id))
+        cur.execute(
+            "UPDATE session SET completed = TRUE, score = %s WHERE session_id = %s;",
+            (current_score, session_id)
+        )
         completed = True
-
         send_results_email(name, email, city_name, current_score)
 
     conn.commit()
@@ -187,14 +182,11 @@ def submit_answer(session_id):
 
     return jsonify({
         "correct": is_correct,
-        "correct_answer": correct_answer,
-        "score": current_score,
-        "next_step": "completed" if completed else "next_question",
-        "next_question_number": None if completed else current_number + 1
+        "next": "completed" if completed else "next"
     })
 
 # --------------------------------------------------
-# 🚨 IMPORTANT: Correct Render Port Binding
+# Render Port Binding
 # --------------------------------------------------
 
 if __name__ == "__main__":
