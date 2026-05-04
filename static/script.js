@@ -4,6 +4,10 @@
 
 let sessionId = null;
 
+document.addEventListener("DOMContentLoaded", () => {
+  loadCities();
+});
+
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, options);
 
@@ -15,6 +19,30 @@ async function fetchJson(url, options = {}) {
   return response.json();
 }
 
+async function loadCities() {
+  const citySelect = document.getElementById("city");
+
+  try {
+    const data = await fetchJson("/api/cities");
+    const cities = data.cities || [];
+
+    if (cities.length === 0) {
+      citySelect.innerHTML = `<option value="">No cities available</option>`;
+      citySelect.disabled = true;
+      return;
+    }
+
+    citySelect.innerHTML = cities
+      .map(city => `<option value="${city.id}">${city.name}</option>`)
+      .join("");
+    citySelect.disabled = false;
+  } catch (error) {
+    citySelect.innerHTML = `<option value="">Unable to load cities</option>`;
+    citySelect.disabled = true;
+    showError(error.message);
+  }
+}
+
 // --------------------------------------------------
 // Start Game (called after user enters name/email/city)
 // --------------------------------------------------
@@ -23,6 +51,11 @@ async function startGame() {
   const name = document.getElementById("name").value;
   const email = document.getElementById("email").value;
   const cityId = document.getElementById("city").value;
+
+  if (!cityId) {
+    showError("Please choose a city before starting the game.");
+    return;
+  }
 
   try {
     const data = await fetchJson("/api/start", {

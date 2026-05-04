@@ -1,6 +1,8 @@
 import os
 from uuid import uuid4
 import psycopg2
+from psycopg2 import Error as PsycopgError
+from psycopg2 import OperationalError
 from psycopg2.extras import RealDictCursor
 from flask import Flask, jsonify, request, render_template
 from dotenv import load_dotenv
@@ -32,8 +34,18 @@ def get_db():
         database=DB_NAME,
         user=DB_USER,
         password=DB_PASSWORD,
-        port=DB_PORT
+        port=DB_PORT,
+        connect_timeout=5,
+        sslmode="require"
     )
+
+
+def database_error_response(message, error):
+    if error is None:
+        app.logger.error(message)
+    else:
+        app.logger.exception(message, exc_info=error)
+    return jsonify({"error": message}), 503
 
 # --------------------------------------------------
 # Email Helper
@@ -71,6 +83,46 @@ def health():
     return jsonify({"status": "ok"})
 
 # --------------------------------------------------
+# API: Cities
+# --------------------------------------------------
+
+@app.route("/api/cities")
+def get_cities():
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+    except OperationalError:
+        return database_error_response(
+            "Database connection failed. Check the Supabase Postgres host and credentials.",
+            error=None
+        )
+    except PsycopgError as error:
+        return database_error_response("Database query failed while loading cities.", error)
+
+    try:
+        cur.execute(
+            """
+            SELECT id, name
+            FROM city
+            ORDER BY name;
+            """
+        )
+        cities = cur.fetchall()
+    except PsycopgError as error:
+        conn.rollback()
+        return database_error_response("Database query failed while loading cities.", error)
+    finally:
+        cur.close()
+        conn.close()
+
+    return jsonify({
+        "cities": [
+            {"id": city["id"], "name": city["name"]}
+            for city in cities
+        ]
+    })
+
+# --------------------------------------------------
 # API: Start Game
 # --------------------------------------------------
 
@@ -87,20 +139,44 @@ def start_game():
 
     session_id = str(uuid4())
 
-    conn = get_db()
-    cur = conn.cursor()
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+    except OperationalError:
+        return database_error_response(
+            "Database connection failed. Check the Supabase Postgres host and credentials.",
+            error=None
+        )
 
-    cur.execute(
-        """
-        INSERT INTO session (session_id, name, email, city_id, current_landmark, score, completed)
-        VALUES (%s, %s, %s, %s, 1, 0, FALSE);
-        """,
-        (session_id, name, email, city_id)
-    )
+    try:
+        cur.execute(
+            """
+            SELECT id
+            FROM city
+            WHERE id = %s;
+            """,
+            (city_id,)
+        )
+        city = cur.fetchone()
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        if not city:
+            return jsonify({"error": "Selected city does not exist."}), 400
+
+        cur.execute(
+            """
+            INSERT INTO session (session_id, name, email, city_id, current_landmark, score, completed)
+            VALUES (%s, %s, %s, %s, 1, 0, FALSE);
+            """,
+            (session_id, name, email, city_id)
+        )
+
+        conn.commit()
+    except PsycopgError as error:
+        conn.rollback()
+        return database_error_response("Database write failed while starting the game.", error)
+    finally:
+        cur.close()
+        conn.close()
 
     return jsonify({"session_id": session_id}), 201
 
@@ -110,31 +186,40 @@ def start_game():
 
 @app.route("/api/question/<session_id>")
 def get_current_question(session_id):
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+    except OperationalError:
+        return database_error_response(
+            "Database connection failed. Check the Supabase Postgres host and credentials.",
+            error=None
+        )
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        sql = """
+        SELECT
+            q.question_number,
+            q.question,
+            q.a,
+            q.b,
+            q.c,
+            q.d
+        FROM session s
+        JOIN city c ON c.id = s.city_id
+        JOIN landmark l ON l.city_id = c.id
+        JOIN question q ON q.landmark_id = l.id
+        WHERE s.session_id = %s
+          AND q.question_number = s.current_landmark;
+        """
 
-    sql = """
-    SELECT
-        q.question_number,
-        q.question,
-        q.a,
-        q.b,
-        q.c,
-        q.d
-    FROM session s
-    JOIN city c ON c.id = s.city_id
-    JOIN landmark l ON l.city_id = c.id
-    JOIN question q ON q.landmark_id = l.id
-    WHERE s.session_id = %s
-      AND q.question_number = s.current_landmark;
-    """
-
-    cur.execute(sql, (session_id,))
-    question = cur.fetchone()
-
-    cur.close()
-    conn.close()
+        cur.execute(sql, (session_id,))
+        question = cur.fetchone()
+    except PsycopgError as error:
+        conn.rollback()
+        return database_error_response("Database query failed while loading the question.", error)
+    finally:
+        cur.close()
+        conn.close()
 
     if not question:
         return jsonify({"error": "Question not found"}), 404
@@ -164,61 +249,70 @@ def submit_answer(session_id):
     if not user_answer:
         return jsonify({"error": "Answer required"}), 400
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+    except OperationalError:
+        return database_error_response(
+            "Database connection failed. Check the Supabase Postgres host and credentials.",
+            error=None
+        )
 
-    sql = """
-    SELECT
-        q.correct,
-        s.current_landmark,
-        s.score,
-        s.name,
-        s.email,
-        c.name AS city_name
-    FROM session s
-    JOIN city c ON c.id = s.city_id
-    JOIN landmark l ON l.city_id = c.id
-    JOIN question q ON q.landmark_id = l.id
-    WHERE s.session_id = %s
-      AND q.question_number = s.current_landmark;
-    """
+    try:
+        sql = """
+        SELECT
+            q.correct,
+            s.current_landmark,
+            s.score,
+            s.name,
+            s.email,
+            c.name AS city_name
+        FROM session s
+        JOIN city c ON c.id = s.city_id
+        JOIN landmark l ON l.city_id = c.id
+        JOIN question q ON q.landmark_id = l.id
+        WHERE s.session_id = %s
+          AND q.question_number = s.current_landmark;
+        """
 
-    cur.execute(sql, (session_id,))
-    row = cur.fetchone()
+        cur.execute(sql, (session_id,))
+        row = cur.fetchone()
 
-    if not row:
+        if not row:
+            return jsonify({"error": "Session or question not found"}), 404
+
+        correct_answer = row["correct"]
+        current_number = row["current_landmark"]
+        current_score = row["score"]
+        name = row["name"]
+        email = row["email"]
+        city_name = row["city_name"]
+
+        is_correct = (user_answer == correct_answer)
+        if is_correct:
+            current_score += 1
+
+        if current_number < 15:
+            cur.execute(
+                "UPDATE session SET current_landmark = current_landmark + 1, score = %s WHERE session_id = %s;",
+                (current_score, session_id)
+            )
+            completed = False
+        else:
+            cur.execute(
+                "UPDATE session SET completed = TRUE, score = %s WHERE session_id = %s;",
+                (current_score, session_id)
+            )
+            completed = True
+            send_results_email(name, email, city_name, current_score)
+
+        conn.commit()
+    except PsycopgError as error:
+        conn.rollback()
+        return database_error_response("Database operation failed while saving the answer.", error)
+    finally:
         cur.close()
         conn.close()
-        return jsonify({"error": "Session or question not found"}), 404
-
-    correct_answer = row["correct"]
-    current_number = row["current_landmark"]
-    current_score = row["score"]
-    name = row["name"]
-    email = row["email"]
-    city_name = row["city_name"]
-
-    is_correct = (user_answer == correct_answer)
-    if is_correct:
-        current_score += 1
-
-    if current_number < 15:
-        cur.execute(
-            "UPDATE session SET current_landmark = current_landmark + 1, score = %s WHERE session_id = %s;",
-            (current_score, session_id)
-        )
-        completed = False
-    else:
-        cur.execute(
-            "UPDATE session SET completed = TRUE, score = %s WHERE session_id = %s;",
-            (current_score, session_id)
-        )
-        completed = True
-        send_results_email(name, email, city_name, current_score)
-
-    conn.commit()
-    cur.close()
-    conn.close()
 
     return jsonify({
         "correct": is_correct,
