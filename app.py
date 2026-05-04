@@ -1,4 +1,5 @@
 import os
+from uuid import uuid4
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from flask import Flask, jsonify, request, render_template
@@ -70,6 +71,40 @@ def health():
     return jsonify({"status": "ok"})
 
 # --------------------------------------------------
+# API: Start Game
+# --------------------------------------------------
+
+@app.route("/api/start", methods=["POST"])
+def start_game():
+    data = request.get_json() or {}
+
+    name = (data.get("name") or "").strip()
+    email = (data.get("email") or "").strip()
+    city_id = data.get("city_id")
+
+    if not name or not email or not city_id:
+        return jsonify({"error": "Name, email, and city are required"}), 400
+
+    session_id = str(uuid4())
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        INSERT INTO session (session_id, name, email, city_id, current_landmark, score, completed)
+        VALUES (%s, %s, %s, %s, 1, 0, FALSE);
+        """,
+        (session_id, name, email, city_id)
+    )
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return jsonify({"session_id": session_id}), 201
+
+# --------------------------------------------------
 # API: Get Current Question
 # --------------------------------------------------
 
@@ -123,7 +158,7 @@ def get_current_question(session_id):
 @app.route("/api/answer/<session_id>", methods=["POST"])
 def submit_answer(session_id):
 
-    data = request.get_json()
+    data = request.get_json() or {}
     user_answer = data.get("answer")
 
     if not user_answer:
@@ -150,6 +185,11 @@ def submit_answer(session_id):
 
     cur.execute(sql, (session_id,))
     row = cur.fetchone()
+
+    if not row:
+        cur.close()
+        conn.close()
+        return jsonify({"error": "Session or question not found"}), 404
 
     correct_answer = row["correct"]
     current_number = row["current_landmark"]
@@ -182,7 +222,9 @@ def submit_answer(session_id):
 
     return jsonify({
         "correct": is_correct,
-        "next": "completed" if completed else "next"
+        "correct_answer": correct_answer,
+        "next": "completed" if completed else "next",
+        "next_step": "completed" if completed else "next_question"
     })
 
 # --------------------------------------------------
