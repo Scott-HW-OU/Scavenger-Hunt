@@ -163,8 +163,7 @@ def submit_answer(session_id):
     if current_number < 15:
         update_sql = """
         UPDATE session
-        SET
-            current_landmark = current_landmark + 1,
+        SET current_landmark = current_landmark + 1,
             score = %s
         WHERE session_id = %s;
         """
@@ -173,15 +172,13 @@ def submit_answer(session_id):
     else:
         update_sql = """
         UPDATE session
-        SET
-            completed = TRUE,
+        SET completed = TRUE,
             score = %s
         WHERE session_id = %s;
         """
         cur.execute(update_sql, (current_score, session_id))
         completed = True
 
-        # Send email on completion
         send_results_email(name, email, city_name, current_score)
 
     conn.commit()
@@ -197,8 +194,9 @@ def submit_answer(session_id):
     })
 
 # --------------------------------------------------
-# Run App
+# 🚨 IMPORTANT: Correct Render Port Binding
 # --------------------------------------------------
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
