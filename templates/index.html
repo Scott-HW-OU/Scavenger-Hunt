@@ -3,29 +3,49 @@
 <head>
   <meta charset="utf-8">
   <title>City Explorer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
   <script src="/static/script.js" defer></script>
 </head>
 <body>
+  <div class="page-shell">
+    <div class="background-orb orb-one"></div>
+    <div class="background-orb orb-two"></div>
+    <div class="background-orb orb-three"></div>
 
-<h1>City Explorer</h1>
+    <main class="app-card">
+      <div class="hero-badge">Interactive City Challenge</div>
+      <h1>City Explorer</h1>
+      <p class="intro">
+        Pick a city, start the hunt, and race through a bright trail of landmark questions.
+      </p>
 
-<label>Name</label><br>
-<input id="name"><br><br>
+      <section class="panel">
+        <div class="field-grid">
+          <label class="field">
+            <span>Name</span>
+            <input id="name" placeholder="Enter your name">
+          </label>
 
-<label>Email</label><br>
-<input id="email"><br><br>
+          <label class="field">
+            <span>Email</span>
+            <input id="email" placeholder="Enter your email">
+          </label>
 
-<label>City</label><br>
-<select id="city">
-  <option value="1">Manchester</option>
-  <option value="2">London</option>
-</select><br><br>
+          <label class="field">
+            <span>City</span>
+            <select id="city">
+              <option value="1">Manchester</option>
+              <option value="2">London</option>
+            </select>
+          </label>
+        </div>
 
-<button onclick="startGame()">Start Game</button>
+        <button class="primary-button" onclick="startGame()">Start Game</button>
+      </section>
 
-<hr>
-
-<div id="game"></div>
-
+      <div id="game" class="game-panel"></div>
+    </main>
+  </div>
 </body>
 </html>

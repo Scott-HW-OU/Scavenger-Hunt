@@ -58,15 +58,21 @@ async function loadQuestion() {
     const container = document.getElementById("game");
 
     container.innerHTML = `
-      <h2>Question ${data.number} of ${data.total}</h2>
-      <p>${data.question}</p>
+      <section class="game-stage">
+        <div class="question-chip">Rainbow Round</div>
+        <h2>Question ${data.number} of ${data.total}</h2>
+        <p class="question-meta">Keep the streak going.</p>
+        <p class="question-copy">${data.question}</p>
 
-      <button onclick="submitAnswer('${data.options[0]}')">${data.options[0]}</button>
-      <button onclick="submitAnswer('${data.options[1]}')">${data.options[1]}</button>
-      <button onclick="submitAnswer('${data.options[2]}')">${data.options[2]}</button>
-      <button onclick="submitAnswer('${data.options[3]}')">${data.options[3]}</button>
+        <div class="answers-grid">
+          <button class="answer-button" onclick="submitAnswer('${data.options[0]}')">${data.options[0]}</button>
+          <button class="answer-button" onclick="submitAnswer('${data.options[1]}')">${data.options[1]}</button>
+          <button class="answer-button" onclick="submitAnswer('${data.options[2]}')">${data.options[2]}</button>
+          <button class="answer-button" onclick="submitAnswer('${data.options[3]}')">${data.options[3]}</button>
+        </div>
 
-      <p id="feedback"></p>
+        <p id="feedback"></p>
+      </section>
     `;
   } catch (error) {
     showError(error.message);
@@ -89,8 +95,10 @@ async function submitAnswer(answer) {
 
     if (data.correct) {
       feedback.innerText = "Correct!";
+      feedback.className = "feedback-correct";
     } else {
       feedback.innerText = `Incorrect. Correct answer was: ${data.correct_answer}`;
+      feedback.className = "feedback-incorrect";
     }
 
     if (data.next_step === "next_question") {
@@ -111,9 +119,12 @@ function showCompletion() {
   const container = document.getElementById("game");
 
   container.innerHTML = `
-    <h2>Game Complete</h2>
-    <p>Thank you for taking part!</p>
-    <p>Your results have been emailed to you.</p>
+    <section class="completion-stage">
+      <div class="completion-chip">Finish Line</div>
+      <h2>Game Complete</h2>
+      <p class="status-copy">Thank you for taking part!</p>
+      <p class="status-copy">Your results have been emailed to you.</p>
+    </section>
   `;
 }
 
@@ -121,6 +132,9 @@ function showError(message) {
   const container = document.getElementById("game");
 
   container.innerHTML = `
-    <p>${message}</p>
+    <section class="error-stage">
+      <div class="error-chip">Something went wrong</div>
+      <p class="error-message">${message}</p>
+    </section>
   `;
 }
