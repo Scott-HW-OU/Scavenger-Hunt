@@ -4,6 +4,7 @@ import psycopg2
 from psycopg2 import Error as PsycopgError
 from psycopg2 import OperationalError
 from psycopg2.extras import RealDictCursor
+from psycopg2 import sql
 from flask import Flask, jsonify, request, render_template
 from dotenv import load_dotenv
 import requests
@@ -46,6 +47,44 @@ def database_error_response(message, error):
     else:
         app.logger.exception(message, exc_info=error)
     return jsonify({"error": message}), 503
+
+
+def get_landmark_coordinate_columns(cur):
+    columns = get_table_columns(cur, "landmark")
+
+    candidates = [
+        ("latitude", "longitude"),
+        ("lat", "lng"),
+        ("lat", "lon"),
+        ("latitude", "lng"),
+        ("latitude", "lon"),
+    ]
+
+    for latitude_column, longitude_column in candidates:
+        if latitude_column in columns and longitude_column in columns:
+            return latitude_column, longitude_column
+
+    return None, None
+
+
+def get_table_columns(cur, table_name):
+    cur.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = %s;
+        """,
+        (table_name,)
+    )
+    return {row["column_name"] for row in cur.fetchall()}
+
+
+def get_first_matching_column(columns, candidates):
+    for candidate in candidates:
+        if candidate in columns:
+            return candidate
+    return None
 
 # --------------------------------------------------
 # Email Helper
@@ -196,23 +235,67 @@ def get_current_question(session_id):
         )
 
     try:
-        sql = """
-        SELECT
-            q.question_number,
-            q.question,
-            q.a,
-            q.b,
-            q.c,
-            q.d
-        FROM session s
-        JOIN city c ON c.id = s.city_id
-        JOIN landmark l ON l.city_id = c.id
-        JOIN question q ON q.landmark_id = l.id
-        WHERE s.session_id = %s
-          AND q.question_number = s.current_landmark;
-        """
+        latitude_column, longitude_column = get_landmark_coordinate_columns(cur)
+        landmark_columns = get_table_columns(cur, "landmark")
+        riddle_column = get_first_matching_column(landmark_columns, ["riddle", "clue"])
+        hint_column = get_first_matching_column(landmark_columns, ["hint", "riddle_hint", "clue_hint"])
 
-        cur.execute(sql, (session_id,))
+        if latitude_column and longitude_column:
+            query = sql.SQL(
+                """
+                SELECT
+                    q.question_number,
+                    q.question,
+                    q.a,
+                    q.b,
+                    q.c,
+                    q.d,
+                    l.name AS landmark_name,
+                    l.{latitude_column} AS latitude,
+                    l.{longitude_column} AS longitude,
+                    {riddle_select} AS riddle,
+                    {hint_select} AS hint
+                FROM session s
+                JOIN city c ON c.id = s.city_id
+                JOIN landmark l ON l.city_id = c.id
+                JOIN question q ON q.landmark_id = l.id
+                WHERE s.session_id = %s
+                  AND q.question_number = s.current_landmark;
+                """
+            ).format(
+                latitude_column=sql.Identifier(latitude_column),
+                longitude_column=sql.Identifier(longitude_column),
+                riddle_select=sql.Identifier("l", riddle_column) if riddle_column else sql.SQL("NULL"),
+                hint_select=sql.Identifier("l", hint_column) if hint_column else sql.SQL("NULL"),
+            )
+        else:
+            query = sql.SQL(
+                """
+                SELECT
+                    q.question_number,
+                    q.question,
+                    q.a,
+                    q.b,
+                    q.c,
+                    q.d,
+                    l.name AS landmark_name,
+                    NULL::double precision AS latitude,
+                    NULL::double precision AS longitude,
+                    {riddle_select} AS riddle,
+                    {hint_select} AS hint
+                FROM session s
+                JOIN city c ON c.id = s.city_id
+                JOIN landmark l ON l.city_id = c.id
+                JOIN question q ON q.landmark_id = l.id
+                WHERE s.session_id = %s
+                  AND q.question_number = s.current_landmark;
+                """
+            ).format(
+                riddle_select=sql.Identifier("l", riddle_column) if riddle_column else sql.SQL("NULL"),
+                hint_select=sql.Identifier("l", hint_column) if hint_column else sql.SQL("NULL"),
+            )
+
+        cur.execute(query, (session_id,))
         question = cur.fetchone()
     except PsycopgError as error:
         conn.rollback()
@@ -227,6 +310,11 @@ def get_current_question(session_id):
     return jsonify({
         "number": question["question_number"],
         "total": 15,
+        "landmark_name": question["landmark_name"],
+        "latitude": question["latitude"],
+        "longitude": question["longitude"],
+        "riddle": question["riddle"],
+        "hint": question["hint"],
         "question": question["question"],
         "options": [
             question["a"],

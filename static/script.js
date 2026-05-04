@@ -3,6 +3,8 @@
 // --------------------------------------------------
 
 let sessionId = null;
+let pendingQuestion = null;
+const LANDMARK_RADIUS_METERS = 20;
 
 document.addEventListener("DOMContentLoaded", () => {
   loadCities();
@@ -58,6 +60,8 @@ async function startGame() {
   }
 
   try {
+    await ensureLocationPermission();
+
     const data = await fetchJson("/api/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -88,25 +92,8 @@ async function loadQuestion() {
       return;
     }
 
-    const container = document.getElementById("game");
-
-    container.innerHTML = `
-      <section class="game-stage">
-        <div class="question-chip">Rainbow Round</div>
-        <h2>Question ${data.number} of ${data.total}</h2>
-        <p class="question-meta">Keep the streak going.</p>
-        <p class="question-copy">${data.question}</p>
-
-        <div class="answers-grid">
-          <button class="answer-button" onclick="submitAnswer('${data.options[0]}')">${data.options[0]}</button>
-          <button class="answer-button" onclick="submitAnswer('${data.options[1]}')">${data.options[1]}</button>
-          <button class="answer-button" onclick="submitAnswer('${data.options[2]}')">${data.options[2]}</button>
-          <button class="answer-button" onclick="submitAnswer('${data.options[3]}')">${data.options[3]}</button>
-        </div>
-
-        <p id="feedback"></p>
-      </section>
-    `;
+    pendingQuestion = data;
+    await showQuestionWhenNearby();
   } catch (error) {
     showError(error.message);
   }
@@ -159,6 +146,115 @@ function showCompletion() {
       <p class="status-copy">Your results have been emailed to you.</p>
     </section>
   `;
+}
+
+async function ensureLocationPermission() {
+  if (!navigator.geolocation) {
+    throw new Error("This device does not support location services.");
+  }
+
+  await getCurrentPosition();
+}
+
+async function showQuestionWhenNearby() {
+  if (!pendingQuestion) {
+    return;
+  }
+
+  if (pendingQuestion.latitude === null || pendingQuestion.longitude === null) {
+    showError(`Location data is missing for ${pendingQuestion.landmark_name}. Add coordinates for this landmark in the database.`);
+    return;
+  }
+
+  const position = await getCurrentPosition();
+  const distance = calculateDistanceMeters(
+    position.coords.latitude,
+    position.coords.longitude,
+    pendingQuestion.latitude,
+    pendingQuestion.longitude
+  );
+
+  if (distance > LANDMARK_RADIUS_METERS) {
+    showLocationGate(distance);
+    return;
+  }
+
+  renderQuestion(pendingQuestion, distance);
+}
+
+function renderQuestion(data, distance) {
+  const container = document.getElementById("game");
+  const distanceLabel = Math.round(distance);
+
+  container.innerHTML = `
+    <section class="game-stage">
+      <div class="question-chip">Rainbow Round</div>
+      <h2>Question ${data.number} of ${data.total}</h2>
+      <p class="question-meta">${data.landmark_name} unlocked at ${distanceLabel} meters away.</p>
+      <p class="question-copy">${data.question}</p>
+
+      <div class="answers-grid">
+        <button class="answer-button" onclick="submitAnswer('${data.options[0]}')">${data.options[0]}</button>
+        <button class="answer-button" onclick="submitAnswer('${data.options[1]}')">${data.options[1]}</button>
+        <button class="answer-button" onclick="submitAnswer('${data.options[2]}')">${data.options[2]}</button>
+        <button class="answer-button" onclick="submitAnswer('${data.options[3]}')">${data.options[3]}</button>
+      </div>
+
+      <p id="feedback"></p>
+    </section>
+  `;
+}
+
+function showLocationGate(distance) {
+  const container = document.getElementById("game");
+  const roundedDistance = Math.round(distance);
+
+  container.innerHTML = `
+    <section class="error-stage">
+      <div class="error-chip">Move Closer</div>
+      <h2>${pendingQuestion.landmark_name}</h2>
+      <p class="error-message">
+        You need to be within ${LANDMARK_RADIUS_METERS} meters of the landmark to unlock this question.
+        You are currently about ${roundedDistance} meters away.
+      </p>
+      <button class="primary-button" onclick="retryLocationCheck()">Check My Location Again</button>
+    </section>
+  `;
+}
+
+async function retryLocationCheck() {
+  try {
+    await showQuestionWhenNearby();
+  } catch (error) {
+    showError(error.message);
+  }
+}
+
+function getCurrentPosition() {
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, () => {
+      reject(new Error("Location access is required to play this game."));
+    }, {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0
+    });
+  });
+}
+
+function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+  const earthRadius = 6371000;
+  const toRadians = degrees => degrees * (Math.PI / 180);
+  const deltaLat = toRadians(lat2 - lat1);
+  const deltaLon = toRadians(lon2 - lon1);
+  const startLat = toRadians(lat1);
+  const endLat = toRadians(lat2);
+
+  const a = Math.sin(deltaLat / 2) ** 2
+    + Math.cos(startLat) * Math.cos(endLat) * Math.sin(deltaLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return earthRadius * c;
 }
 
 function showError(message) {
