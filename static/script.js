@@ -4,7 +4,7 @@
 
 let sessionId = null;
 let pendingQuestion = null;
-const LANDMARK_RADIUS_METERS = 20;
+const DEFAULT_LANDMARK_RADIUS_METERS = 20;
 
 document.addEventListener("DOMContentLoaded", () => {
   loadCities();
@@ -161,6 +161,8 @@ async function showQuestionWhenNearby() {
     return;
   }
 
+  const radiusMeters = pendingQuestion.radius_meters || DEFAULT_LANDMARK_RADIUS_METERS;
+
   if (pendingQuestion.latitude === null || pendingQuestion.longitude === null) {
     showError(`Location data is missing for ${pendingQuestion.landmark_name}. Add coordinates for this landmark in the database.`);
     return;
@@ -174,8 +176,8 @@ async function showQuestionWhenNearby() {
     pendingQuestion.longitude
   );
 
-  if (distance > LANDMARK_RADIUS_METERS) {
-    showLocationGate(distance);
+  if (distance > radiusMeters) {
+    showLocationGate(distance, radiusMeters);
     return;
   }
 
@@ -205,7 +207,7 @@ function renderQuestion(data, distance) {
   `;
 }
 
-function showLocationGate(distance) {
+function showLocationGate(distance, radiusMeters) {
   const container = document.getElementById("game");
   const roundedDistance = Math.round(distance);
 
@@ -214,7 +216,7 @@ function showLocationGate(distance) {
       <div class="error-chip">Move Closer</div>
       <h2>${pendingQuestion.landmark_name}</h2>
       <p class="error-message">
-        You need to be within ${LANDMARK_RADIUS_METERS} meters of the landmark to unlock this question.
+        You need to be within ${radiusMeters} meters of the landmark to unlock this question.
         You are currently about ${roundedDistance} meters away.
       </p>
       <button class="primary-button" onclick="retryLocationCheck()">Check My Location Again</button>
