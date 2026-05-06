@@ -24,6 +24,12 @@ DB_PORT = os.environ.get("SUPABASE_DB_PORT", "5432")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
+DEFAULT_LANDMARK_RADIUS_METERS = int(os.environ.get("LANDMARK_RADIUS_METERS", "60"))
+
+LANDMARK_COORDINATE_OVERRIDES = {
+    ("manchester", "manchester library"): (53.4781863, -2.2447278),
+    ("manchester", "manchester central library"): (53.4781863, -2.2447278),
+}
 
 # --------------------------------------------------
 # Database Helper
@@ -85,6 +91,24 @@ def get_first_matching_column(columns, candidates):
         if candidate in columns:
             return candidate
     return None
+
+
+def normalize_landmark_key(value):
+    return " ".join((value or "").strip().lower().split())
+
+
+def apply_landmark_coordinate_override(city_name, landmark_name, latitude, longitude):
+    city_key = normalize_landmark_key(city_name)
+    landmark_key = normalize_landmark_key(landmark_name)
+
+    override = LANDMARK_COORDINATE_OVERRIDES.get((city_key, landmark_key))
+    if override:
+        return override
+
+    if city_key == "manchester" and "library" in landmark_key:
+        return 53.4781863, -2.2447278
+
+    return latitude, longitude
 
 # --------------------------------------------------
 # Email Helper
@@ -309,14 +333,21 @@ def get_current_question(session_id):
     if not question:
         return jsonify({"error": "Question not found"}), 404
 
+    latitude, longitude = apply_landmark_coordinate_override(
+        question["city_name"],
+        question["landmark_name"],
+        question["latitude"],
+        question["longitude"],
+    )
+
     return jsonify({
         "number": question["question_number"],
         "total": 15,
         "city_name": question["city_name"],
         "landmark_name": question["landmark_name"],
-        "latitude": question["latitude"],
-        "longitude": question["longitude"],
-        "radius_meters": 10 if question["city_name"] == "Milton Keynes (Open University)" else 20,
+        "latitude": latitude,
+        "longitude": longitude,
+        "radius_meters": DEFAULT_LANDMARK_RADIUS_METERS,
         "riddle": question["riddle"],
         "hint": question["hint"],
         "question": question["question"],

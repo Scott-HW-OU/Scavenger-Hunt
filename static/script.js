@@ -4,7 +4,7 @@
 
 let sessionId = null;
 let pendingQuestion = null;
-const DEFAULT_LANDMARK_RADIUS_METERS = 20;
+const DEFAULT_LANDMARK_RADIUS_METERS = 60;
 
 document.addEventListener("DOMContentLoaded", () => {
   loadCities();
